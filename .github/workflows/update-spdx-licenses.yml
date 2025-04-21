@@ -15,7 +15,10 @@ jobs:
           distribution: 'zulu'
           java-version-file: .github/workflows/.java-version
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew downloadLicensesJson
+      - name: Download licenses.json and dump API
+        run: |
+          ./gradlew downloadLicensesJson
+          ./gradlew apiDump
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
