@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - 'trunk'
+      - 'auto-update-spdx-licenses' # Defined in update-spdx-licenses.yml
     tags-ignore:
       - '**'
 
