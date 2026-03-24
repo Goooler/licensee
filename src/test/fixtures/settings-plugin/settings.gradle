@@ -1,0 +1,32 @@
+pluginManagement {
+  includeBuild("../../test-build-logic")
+  repositories {
+    maven {
+      url = new File(rootDir.parentFile.parentFile.parentFile.parentFile, "build/localMaven")
+    }
+    mavenCentral()
+    google()
+  }
+}
+
+plugins {
+  id("app.cash.licensee") version "$licenseeVersion"
+}
+
+dependencyResolutionManagement {
+  repositories {
+    maven {
+      url = new File(rootDir, "repo")
+      metadataSources {
+        gradleMetadata()
+        mavenPom()
+      }
+    }
+    mavenCentral()
+    google()
+  }
+}
+
+licensee {
+  allow('Apache-2.0')
+}

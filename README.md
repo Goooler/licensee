@@ -73,6 +73,14 @@ buildscript {
 apply plugin: 'app.cash.licensee'
 ```
 
+or with the plugins DSL for your project or settings:
+
+```groovy
+plugins {
+  id 'app.cash.licensee' version '1.14.1'
+}
+```
+
 <details>
 <summary>Snapshots of the development version are available in the Central Portal Snapshots repository.</summary>
 <p>

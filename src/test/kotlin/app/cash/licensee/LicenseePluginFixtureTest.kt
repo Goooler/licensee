@@ -111,6 +111,7 @@ class LicenseePluginFixtureTest(
       "project-android-to-java-ignored",
       "project-java-to-java-ignored",
       "repository-include-exclude",
+      "settings-plugin",
       "spdx-allow-unused",
       "spdx-allowed",
       "spdx-allowed-but-no-match",

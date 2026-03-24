@@ -3,6 +3,9 @@
 ## [Unreleased]
 [Unreleased]: https://github.com/cashapp/licensee/compare/1.14.1...HEAD]
 
+**Added**
+- Support using as a settings plugin.
+
 **Changed**
 
 - The minimum-supported Gradle version is now 9.0.

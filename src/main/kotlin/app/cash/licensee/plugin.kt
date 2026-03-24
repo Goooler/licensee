@@ -17,9 +17,12 @@ package app.cash.licensee
 
 import com.android.build.api.variant.AndroidComponentsExtension
 import java.util.Locale.ROOT
+import javax.inject.Inject
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.initialization.Settings
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.plugins.JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME
 import org.gradle.api.reporting.ReportingExtension
 import org.gradle.api.tasks.TaskContainer
@@ -35,65 +38,101 @@ private const val BASE_TASK_NAME = "licensee"
 private const val REPORT_FOLDER = "licensee"
 
 @Suppress("unused") // Instantiated reflectively by Gradle.
-class LicenseePlugin : Plugin<Project> {
-  override fun apply(project: Project) {
-    val extension = project.objects.newInstance(MutableLicenseeExtension::class.java)
-    project.extensions.add(LicenseeExtension::class.java, "licensee", extension)
-
-    project.tasks.withType(LicenseeTask::class.java).configureEach {
-      it.dependencyConfig.convention(extension.toDependencyTreeConfig())
-      it.validationConfig.convention(extension.toLicenseValidationConfig())
-      it.violationAction.convention(extension.violationAction)
-      it.unusedAction.convention(extension.unusedAction)
-
-      it.outputDir.convention(
-        project.extensions
-          .getByType(ReportingExtension::class.java)
-          .baseDirectory
-          .dir(REPORT_FOLDER)
-      )
+class LicenseePlugin @Inject constructor(private val objects: ObjectFactory) : Plugin<Any> {
+  override fun apply(target: Any) {
+    when (target) {
+      is Project -> target.apply()
+      is Settings -> target.apply(objects)
+      else -> error("Licensee plugin can only be applied to a Project or Settings.")
     }
+  }
+}
 
-    // Note: java-library applies java so we only need to look for the latter.
-    // Note: org.jetbrains.kotlin.jvm applies java so we only need to look for the latter.
-    project.pluginManager.withPlugin("org.gradle.java") {
-      // Special case: KMP with JVM withJava():
-      // withKotlinMultiPlatformPlugin did already run, so the jvm target is already set, ignore
-      // another setup.
-      if (!project.pluginManager.hasPlugin("org.jetbrains.kotlin.multiplatform")) {
-        configureJavaPlugin(project)
+private fun Project.apply() {
+  val extension = objects.newInstance(MutableLicenseeExtension::class.java)
+  extensions.add(LicenseeExtension::class.java, "licensee", extension)
+
+  tasks.withType(LicenseeTask::class.java).configureEach {
+    it.dependencyConfig.convention(extension.toDependencyTreeConfig())
+    it.validationConfig.convention(extension.toLicenseValidationConfig())
+    it.violationAction.convention(extension.violationAction)
+    it.unusedAction.convention(extension.unusedAction)
+
+    it.outputDir.convention(
+      extensions.getByType(ReportingExtension::class.java).baseDirectory.dir(REPORT_FOLDER)
+    )
+  }
+
+  // Note: java-library applies java so we only need to look for the latter.
+  // Note: org.jetbrains.kotlin.jvm applies java so we only need to look for the latter.
+  pluginManager.withPlugin("org.gradle.java") {
+    // Special case: KMP with JVM withJava():
+    // withKotlinMultiPlatformPlugin did already run, so the jvm target is already set, ignore
+    // another setup.
+    if (!pluginManager.hasPlugin("org.jetbrains.kotlin.multiplatform")) {
+      configureJavaPlugin(this)
+    }
+  }
+  pluginManager.withPlugin("org.jetbrains.kotlin.js") {
+    // The JS plugin uses the same runtime configuration name as the Java plugin.
+    configureJavaPlugin(this)
+  }
+
+  withKotlinMultiPlatformPlugin(
+    this,
+    withAndroid = false,
+    extension = extension,
+  ) // see android logic below
+
+  pluginManager.withPlugin("com.android.application") { configureAndroidPlugin(this, extension) }
+  pluginManager.withPlugin("com.android.library") { configureAndroidPlugin(this, extension) }
+  pluginManager.withPlugin("com.android.dynamic-feature") {
+    configureAndroidPlugin(this, extension)
+  }
+
+  afterEvaluate {
+    require(BASE_TASK_NAME in tasks.names) {
+      val name =
+        if (path == ":") {
+          "root project"
+        } else {
+          "project $path"
+        }
+      "'app.cash.licensee' requires compatible language/platform plugin to be applied ($name)"
+    }
+  }
+}
+
+private fun Settings.apply(objects: ObjectFactory) {
+  val extension = objects.newInstance(MutableLicenseeExtension::class.java)
+  extensions.add(LicenseeExtension::class.java, "licensee", extension)
+
+  gradle.lifecycle.beforeProject { project ->
+    project.pluginManager.apply(LicenseePlugin::class.java)
+    val projectExtension =
+      (project.extensions.getByType(LicenseeExtension::class.java) as MutableLicenseeExtension)
+        .apply {
+        allowedIdentifiers.convention(extension.allowedIdentifiers)
+        allowedUrls.convention(extension.allowedUrls)
+        allowedDependencies.convention(extension.allowedDependencies)
+        ignoredGroupIds.convention(extension.ignoredGroupIds)
+        violationAction.convention(extension.violationAction)
+        unusedAction.convention(extension.unusedAction)
+        bundleAndroidAsset.convention(extension.bundleAndroidAsset)
+        androidAssetReportPath.convention(extension.androidAssetReportPath)
       }
-    }
-    project.pluginManager.withPlugin("org.jetbrains.kotlin.js") {
-      // The JS plugin uses the same runtime configuration name as the Java plugin.
-      configureJavaPlugin(project)
-    }
 
-    withKotlinMultiPlatformPlugin(
-      project,
-      withAndroid = false,
-      extension = extension,
-    ) // see android logic below
-
-    project.pluginManager.withPlugin("com.android.application") {
-      configureAndroidPlugin(project, extension)
-    }
-    project.pluginManager.withPlugin("com.android.library") {
-      configureAndroidPlugin(project, extension)
-    }
-    project.pluginManager.withPlugin("com.android.dynamic-feature") {
-      configureAndroidPlugin(project, extension)
-    }
-
-    project.afterEvaluate {
-      require(BASE_TASK_NAME in project.tasks.names) {
-        val name =
-          if (project.path == ":") {
-            "root project"
-          } else {
-            "project ${project.path}"
-          }
-        "'app.cash.licensee' requires compatible language/platform plugin to be applied ($name)"
+    extension.ignoredCoordinates.configureEach { settingsIgnoredCoord ->
+      if (settingsIgnoredCoord.name in projectExtension.ignoredCoordinates.names) {
+        projectExtension.ignoredCoordinates.named(settingsIgnoredCoord.name) { projectIgnoredCoord
+          ->
+          projectIgnoredCoord.ignoredDatas.convention(settingsIgnoredCoord.ignoredDatas)
+        }
+      } else {
+        projectExtension.ignoredCoordinates.register(settingsIgnoredCoord.name) {
+          projectIgnoredCoord ->
+          projectIgnoredCoord.ignoredDatas.convention(settingsIgnoredCoord.ignoredDatas)
+        }
       }
     }
   }
